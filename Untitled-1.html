@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BiteDash | Real-Time Traffic GPS</title>
+    <style>
+        :root { 
+            --primary: #ff4757; --tng-blue: #005eb8; --dark: #121212; 
+            --light: #f1f2f6; --card-bg: #ffffff; --text: #2f3542;
+            --road: #95a5a6; --grass: #d1d8e0; --traffic-red: rgba(231, 76, 60, 0.7);
+        }
+
+        body.dark-mode {
+            --light: #0a0a0a; --card-bg: #1e1e26; --text: #ffffff;
+            --road: #333; --grass: #1a1a1c;
+            background-color: var(--light); color: var(--text);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', sans-serif; transition: background 0.3s, color 0.3s; }
+        body { background: var(--light); color: var(--text); overflow-x: hidden; }
+        
+        /* Navigation */
+        nav { background: var(--card-bg); padding: 1rem 5%; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 1000; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .logo { font-size: 1.5rem; font-weight: bold; cursor: pointer; }
+        .logo span { color: var(--primary); }
+        .hidden { display: none !important; }
+
+        .container { max-width: 900px; margin: 1rem auto; padding: 0 20px; }
+
+        /* THE ADVANCED MAP */
+        #map-viewport {
+            width: 100%; height: 450px; background: var(--grass);
+            border-radius: 24px; position: relative; overflow: hidden;
+            border: 6px solid var(--card-bg); box-shadow: 0 20px 50px rgba(0,0,0,0.2);
+        }
+
+        .city-grid { position: absolute; width: 100%; height: 100%; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, 1fr); gap: 40px; padding: 40px; }
+        .block { background: var(--card-bg); border-radius: 8px; opacity: 0.3; }
+
+        .road { position: absolute; background: var(--road); }
+        .main-highway { width: 100%; height: 50px; top: 50%; transform: translateY(-50%); }
+        .main-highway::after { content: ''; position: absolute; width: 100%; top: 50%; border-top: 2px dashed #fff; opacity: 0.5; }
+        .turn-road { width: 50px; height: 100%; left: 70%; top: 0; }
+
+        .jam-zone { position: absolute; width: 25%; height: 50px; background: var(--traffic-red); top: 50%; left: 30%; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; color: white; font-size: 0.6rem; font-weight: bold; z-index: 10; }
+        .label { position: absolute; background: white; padding: 4px 8px; border-radius: 5px; font-size: 10px; font-weight: bold; color: #333; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+
+        #rider-gps { position: absolute; left: 20px; top: 46%; font-size: 2.5rem; z-index: 100; transition: all 1s linear; filter: drop-shadow(0 5px 10px rgba(0,0,0,0.4)); }
+        #rider-bubble { position: absolute; background: #2f3542; color: white; padding: 8px 12px; border-radius: 12px; font-size: 0.75rem; bottom: 110%; left: 0; white-space: nowrap; display: none; }
+        #rider-bubble::after { content: ''; position: absolute; top: 100%; left: 20%; border: 8px solid transparent; border-top-color: #2f3542; }
+
+        .home-icon { position: absolute; left: 68.5%; top: 10%; font-size: 2.5rem; z-index: 50; }
+
+        /* UI Elements */
+        .status-box { background: var(--card-bg); padding: 25px; border-radius: 25px; margin-top: -40px; position: relative; z-index: 200; box-shadow: 0 -10px 30px rgba(0,0,0,0.1); }
+        .food-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }
+        .food-card { background: var(--card-bg); border-radius: 20px; overflow: hidden; box-shadow: 0 10px 20px rgba(0,0,0,0.05); }
+        .food-card img { width: 100%; height: 180px; object-fit: cover; }
+        .btn { background: var(--primary); color: white; border: none; padding: 15px; border-radius: 12px; cursor: pointer; width: 100%; font-weight: 700; }
+        .payment-box { background: var(--card-bg); padding: 20px; border-radius: 20px; max-width: 500px; margin: 0 auto; }
+        
+        input, textarea, select { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 8px; background: var(--card-bg); color: var(--text); }
+    </style>
+</head>
+<body>
+
+    <nav>
+        <div class="logo" onclick="showSection('menu')">Bite<span>Dash</span></div>
+        <div style="display:flex; gap:15px; align-items:center;">
+            <a onclick="showSection('cart')" style="cursor:pointer; font-weight:600;">🛒 Cart (<span id="cart-count">0</span>)</a>
+            <button onclick="document.body.classList.toggle('dark-mode')" style="cursor:pointer; padding:5px 10px; border-radius:10px; background:var(--text); color:var(--light);">🌓</button>
+        </div>
+    </nav>
+
+    <section id="menu" class="container">
+        <div class="food-grid" id="food-display" style="margin-top:20px;"></div>
+        
+        <div style="margin-top: 50px; border-top: 1px solid #ddd; padding-top: 30px;">
+            <h3>Customer Feedback</h3>
+            <div class="payment-box" style="margin: 20px 0; max-width: 100%;">
+                <input type="text" id="rev-name" placeholder="Name">
+                <textarea id="rev-text" placeholder="How was the food?"></textarea>
+                <button class="btn" onclick="addReview()">Post Review</button>
+            </div>
+            <div id="review-list"></div>
+        </div>
+    </section>
+
+    <section id="cart" class="container hidden">
+        <div class="payment-box">
+            <h2>Your Order</h2>
+            <div id="cart-list" style="margin:20px 0;"></div>
+            <h3>Total: $<span id="cart-total">0.00</span></h3>
+            <button class="btn" style="margin-top:20px;" onclick="showSection('checkout')">Proceed to Checkout</button>
+        </div>
+    </section>
+
+    <section id="checkout" class="container hidden">
+        <div class="payment-box">
+            <h2>Payment (TNG eWallet)</h2>
+            <div style="background:#f0f7ff; border:2px dashed var(--tng-blue); padding:20px; text-align:center; border-radius:15px; margin:20px 0;">
+                <div style="background:#222; color:white; width:120px; height:120px; margin:0 auto; display:flex; align-items:center; justify-content:center;">QR CODE</div>
+                <p style="color:var(--tng-blue); font-weight:bold; margin-top:10px;">Scan to Pay</p>
+            </div>
+            <button class="btn" onclick="startTracking()" style="background:#2ecc71;">I've Paid - Start Tracking</button>
+        </div>
+    </section>
+
+    <section id="tracking" class="container hidden">
+        <div id="map-viewport">
+            <div class="city-grid"><div class="block"></div><div class="block"></div><div class="block"></div><div class="block"></div><div class="block"></div><div class="block"></div><div class="block"></div><div class="block"></div></div>
+            <div class="road main-highway"></div>
+            <div class="road turn-road"></div>
+            <div class="jam-zone">🚦 HEAVY TRAFFIC</div>
+            <div class="label" style="top: 20%; left: 10%;">IOI CITY MALL</div>
+            <div class="label" style="top: 70%; left: 15%;">HOSPITAL SERDANG</div>
+            <div class="label" style="top: 45%; left: 80%;">UPM GATE</div>
+            <div id="rider-gps"><div id="rider-bubble"></div>🛵</div>
+            <div class="home-icon">🏠</div>
+        </div>
+        <div class="status-box">
+            <h2 id="status-main">Finding Rider...</h2>
+            <p id="status-sub" style="color: #888;">Connecting to GPS...</p>
+            <button class="btn" style="margin-top:20px; background:var(--dark);" onclick="showSection('menu')">Back to Menu</button>
+        </div>
+    </section>
+
+    <script>
+        const foods = [
+            { id: 1, name: "Double Truffle Burger", price: 18.99, img: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500" },
+            { id: 2, name: "Iced Caramel Macchiato", price: 6.50, img: "https://images.unsplash.com/photo-1485808191679-5f86510681a2?w=500" },
+            { id: 3, name: "New York Cheesecake", price: 9.00, img: "https://images.unsplash.com/photo-1533134242443-d4fd215305ad?w=500" }
+        ];
+
+        let cart = [];
+        let reviews = JSON.parse(localStorage.getItem('bd_revs')) || [{ name: "Ali", text: "Super fast to Serdang!", date: "2m ago" }];
+
+        function showSection(id) {
+            document.querySelectorAll('section').forEach(s => s.classList.add('hidden'));
+            document.getElementById(id).classList.remove('hidden');
+            window.scrollTo(0,0);
+        }
+
+        function renderMenu() {
+            document.getElementById('food-display').innerHTML = foods.map(f => `
+                <div class="food-card">
+                    <img src="${f.img}">
+                    <div style="padding:15px;">
+                        <h3>${f.name}</h3>
+                        <p style="color:var(--primary); font-weight:bold; margin:10px 0;">$${f.price.toFixed(2)}</p>
+                        <button class="btn" onclick="addToCart(${f.id})">Add to Cart</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function addToCart(id) {
+            cart.push(foods.find(f => f.id === id));
+            document.getElementById('cart-count').innerText = cart.length;
+            updateCart();
+        }
+
+        function updateCart() {
+            document.getElementById('cart-list').innerHTML = cart.map(i => `<div style="display:flex; justify-content:space-between; margin-bottom:10px;"><span>${i.name}</span><span>$${i.price.toFixed(2)}</span></div>`).join('');
+            document.getElementById('cart-total').innerText = cart.reduce((s, i) => s + i.price, 0).toFixed(2);
+        }
+
+        function addReview() {
+            const name = document.getElementById('rev-name').value;
+            const text = document.getElementById('rev-text').value;
+            if(!name || !text) return;
+            reviews.unshift({ name, text, date: "Just now" });
+            localStorage.setItem('bd_revs', JSON.stringify(reviews));
+            renderReviews();
+        }
+
+        function renderReviews() {
+            document.getElementById('review-list').innerHTML = reviews.map(r => `
+                <div style="background:var(--card-bg); padding:15px; border-radius:12px; margin-bottom:10px; box-shadow:0 4px 10px rgba(0,0,0,0.05);">
+                    <strong>${r.name}</strong> <small style="color:#888;">${r.date}</small>
+                    <p style="font-size:0.9rem; margin-top:5px;">${r.text}</p>
+                </div>
+            `).join('');
+        }
+
+        function startTracking() {
+            if(!cart.length) return alert("Empty Cart!");
+            showSection('tracking');
+            const rider = document.getElementById('rider-gps');
+            const bubble = document.getElementById('rider-bubble');
+            const main = document.getElementById('status-main');
+            const sub = document.getElementById('status-sub');
+
+            const route = [
+                { l: "10%", t: "46%", m: "Picking up food 🥡", s: "Rider at IOI City Mall.", d: 2000 },
+                { l: "35%", t: "46%", m: "Heavy Traffic! 🚦", s: "Stuck near Hospital Serdang.", d: 5000, chat: "Sorry boss, jem gila!" },
+                { l: "55%", t: "46%", m: "Moving again! 💨", s: "Rider is heading to UPM road.", d: 2000 },
+                { l: "68.5%", t: "46%", m: "Entering your street", s: "Almost there!", d: 2000 },
+                { l: "68.5%", t: "12%", m: "Arrived! 🍱", s: "Enjoy your meal!", d: 1000 }
+            ];
+
+            let step = 0;
+            function move() {
+                if (step < route.length) {
+                    const s = route[step];
+                    rider.style.left = s.l; rider.style.top = s.t;
+                    main.innerText = s.m; sub.innerText = s.s;
+                    if(s.chat) { bubble.innerText = s.chat; bubble.style.display = "block"; } 
+                    else { bubble.style.display = "none"; }
+                    step++;
+                    setTimeout(move, s.d);
+                } else {
+                    rider.innerText = "🍱";
+                    cart = []; document.getElementById('cart-count').innerText = 0;
+                }
+            }
+            move();
+        }
+
+        renderMenu(); renderReviews();
+    </script>
+</body>
+</html>
